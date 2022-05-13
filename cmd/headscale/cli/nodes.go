@@ -164,7 +164,7 @@ var listNodesCmd = &cobra.Command{
 
 		columns, err := cmd.Flags().GetStringSlice("columns")
 		if err != nil {
-			ErrorOutput(err, fmt.Sprintf("Error getting tags: %s", err), output)
+			ErrorOutput(err, fmt.Sprintf("Error getting columns: %s", err), output)
 
 			return
 		}
