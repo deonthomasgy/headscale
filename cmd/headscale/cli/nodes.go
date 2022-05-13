@@ -17,13 +17,38 @@ import (
 	"tailscale.com/types/key"
 )
 
+var availableColumns = map[string]string{
+	"id":           "ID",
+	"name":         "Names",
+	"nodekey":      "NodeKey",
+	"namespace":    "Namespace",
+	"ip_addresses": "IP addresses",
+	"ephemeral":    "Ephemeral",
+	"last_seen":    "Last seen",
+	"online":       "Online",
+	"expired":      "Expired",
+	"tags":         "Tags",
+	"routes":       "Routes",
+}
+
+var defaultColumns = []string{
+	"id",
+	"name",
+	"nodekey",
+	"namespace",
+	"ip_addresses",
+	"ephemeral",
+	"last_seen",
+	"online",
+	"expired",
+}
+
 func init() {
 	rootCmd.AddCommand(nodeCmd)
 	listNodesCmd.Flags().StringP("namespace", "n", "", "Filter by namespace")
 	nodeCmd.AddCommand(listNodesCmd)
 
-	listNodesCmd.Flags().BoolP("show-tags", "", false, "Show tags assigned to node")
-	listNodesCmd.Flags().BoolP("show-routes", "", false, "Show routes assiged to node")
+	listNodesCmd.Flags().StringSliceP("columns", "", defaultColumns, "Customize layout by listing columns")
 	nodeCmd.AddCommand(listNodesCmd)
 
 	registerNodeCmd.Flags().StringP("namespace", "n", "", "Namespace")
@@ -130,7 +155,6 @@ var listNodesCmd = &cobra.Command{
 	Aliases: []string{"ls", "show"},
 	Run: func(cmd *cobra.Command, args []string) {
 		output, _ := cmd.Flags().GetString("output")
-		showRoutes, _ := cmd.Flags().GetBool("show-routes")
 		namespace, err := cmd.Flags().GetString("namespace")
 		if err != nil {
 			ErrorOutput(err, fmt.Sprintf("Error getting namespace: %s", err), output)
@@ -138,7 +162,7 @@ var listNodesCmd = &cobra.Command{
 			return
 		}
 
-		showTags, err := cmd.Flags().GetBool("show-tags")
+		columns, err := cmd.Flags().GetStringSlice("columns")
 		if err != nil {
 			ErrorOutput(err, fmt.Sprintf("Error getting tags: %s", err), output)
 
@@ -170,7 +194,7 @@ var listNodesCmd = &cobra.Command{
 			return
 		}
 
-		tableData, err := nodesToPtables(namespace, showTags, showRoutes, response.Machines)
+		tableData, err := nodesToPtables(namespace, columns, response.Machines)
 		if err != nil {
 			ErrorOutput(err, fmt.Sprintf("Error converting to table: %s", err), output)
 
@@ -400,28 +424,19 @@ var moveNodeCmd = &cobra.Command{
 
 func nodesToPtables(
 	currentNamespace string,
-	showTags bool,
-	showRoutes bool,
+	withColumns []string,
 	machines []*v1.Machine,
 ) (pterm.TableData, error) {
-	tableHeader := []string{
-		"ID",
-		"Name",
-		"NodeKey",
-		"Namespace",
-		"IP addresses",
-		"Ephemeral",
-		"Last seen",
-		"Online",
-		"Expired",
-	}
+	var tableHeader []string
 
-	if showTags {
-		tableHeader = append(tableHeader, "Tags")
-	}
-
-	if showRoutes {
-		tableHeader = append(tableHeader, "Routes")
+	if len(withColumns) > 0 {
+		for _, column := range withColumns {
+			tableHeader = append(tableHeader, availableColumns[column])
+		}
+	} else {
+		for _, column := range defaultColumns {
+			tableHeader = append(tableHeader, availableColumns[column])
+		}
 	}
 
 	tableData := pterm.TableData{tableHeader}
@@ -495,24 +510,29 @@ func nodesToPtables(
 			}
 		}
 
-		nodeData := []string{
-			strconv.FormatUint(machine.Id, headscale.Base10),
-			machine.Name,
-			nodeKey.ShortString(),
-			namespace,
-			strings.Join([]string{IpV4Address, IpV6Address}, ", "),
-			strconv.FormatBool(ephemeral),
-			lastSeenTime,
-			online,
-			expired,
+		defaultData := map[string]string{
+			"id":           strconv.FormatUint(machine.Id, headscale.Base10),
+			"name":         machine.Name,
+			"nodekey":      nodeKey.ShortString(),
+			"namespace":    namespace,
+			"ip_addresses": strings.Join([]string{IpV4Address, IpV6Address}, ", "),
+			"ephemeral":    strconv.FormatBool(ephemeral),
+			"last_seen":    lastSeenTime,
+			"online":       online,
+			"expired":      expired,
+			"tags":         strings.Join(machine.RequestTags, ", "),
+			"routes":       strings.Join(routes, ", "),
 		}
 
-		if showTags {
-			nodeData = append(nodeData, strings.Join(machine.RequestTags, ", "))
-		}
-
-		if showRoutes {
-			nodeData = append(nodeData, strings.Join(routes, ", "))
+		var nodeData []string
+		if len(withColumns) > 0 {
+			for _, column := range withColumns {
+				nodeData = append(nodeData, defaultData[column])
+			}
+		} else {
+			for _, column := range defaultColumns {
+				nodeData = append(nodeData, defaultData[column])
+			}
 		}
 
 		tableData = append(tableData, nodeData)
