@@ -23,6 +23,7 @@ func init() {
 	nodeCmd.AddCommand(listNodesCmd)
 
 	listNodesCmd.Flags().BoolP("show-tags", "", false, "Show tags assigned to node")
+	listNodesCmd.Flags().BoolP("show-routes", "", false, "Show routes assiged to node")
 	nodeCmd.AddCommand(listNodesCmd)
 
 	registerNodeCmd.Flags().StringP("namespace", "n", "", "Namespace")
@@ -129,6 +130,7 @@ var listNodesCmd = &cobra.Command{
 	Aliases: []string{"ls", "show"},
 	Run: func(cmd *cobra.Command, args []string) {
 		output, _ := cmd.Flags().GetString("output")
+		showRoutes, _ := cmd.Flags().GetBool("show-routes")
 		namespace, err := cmd.Flags().GetString("namespace")
 		if err != nil {
 			ErrorOutput(err, fmt.Sprintf("Error getting namespace: %s", err), output)
@@ -168,7 +170,7 @@ var listNodesCmd = &cobra.Command{
 			return
 		}
 
-		tableData, err := nodesToPtables(namespace, showTags, response.Machines)
+		tableData, err := nodesToPtables(namespace, showTags, showRoutes, response.Machines)
 		if err != nil {
 			ErrorOutput(err, fmt.Sprintf("Error converting to table: %s", err), output)
 
@@ -399,6 +401,7 @@ var moveNodeCmd = &cobra.Command{
 func nodesToPtables(
 	currentNamespace string,
 	showTags bool,
+	showRoutes bool,
 	machines []*v1.Machine,
 ) (pterm.TableData, error) {
 	tableHeader := []string{
@@ -415,6 +418,10 @@ func nodesToPtables(
 
 	if showTags {
 		tableHeader = append(tableHeader, "Tags")
+	}
+
+	if showRoutes {
+		tableHeader = append(tableHeader, "Routes")
 	}
 
 	tableData := pterm.TableData{tableHeader}
@@ -479,6 +486,15 @@ func nodesToPtables(
 			}
 		}
 
+		var routes []string
+		for _, route := range machine.RequestedRoutes {
+			if isStringInSlice(machine.EnabledRoutes, route) {
+				routes = append(routes, "*"+pterm.LightGreen(route))
+			} else {
+				routes = append(routes, pterm.LightRed(route))
+			}
+		}
+
 		nodeData := []string{
 			strconv.FormatUint(machine.Id, headscale.Base10),
 			machine.Name,
@@ -493,6 +509,10 @@ func nodesToPtables(
 
 		if showTags {
 			nodeData = append(nodeData, strings.Join(machine.RequestTags, ", "))
+		}
+
+		if showRoutes {
+			nodeData = append(nodeData, strings.Join(routes, ", "))
 		}
 
 		tableData = append(tableData, nodeData)

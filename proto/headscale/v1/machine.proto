@@ -33,6 +33,8 @@ message Machine {
     RegisterMethod register_method = 13;
     reserved 14 to 17;
     repeated string request_tags = 18;
+    repeated string requested_routes = 19;
+    repeated string enabled_routes = 20;
     // google.protobuf.Timestamp updated_at = 14;
     // google.protobuf.Timestamp deleted_at = 15;
 

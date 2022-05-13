@@ -949,6 +949,18 @@
           "items": {
             "type": "string"
           }
+        },
+        "requestedRoutes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "enabledRoutes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
