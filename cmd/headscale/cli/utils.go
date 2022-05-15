@@ -71,6 +71,8 @@ func LoadConfig(path string) error {
 	viper.SetDefault("oidc.scope", []string{oidc.ScopeOpenID, "profile", "email"})
 	viper.SetDefault("oidc.strip_email_domain", true)
 
+	viper.SetDefault("cli.node.list.columns", defaultColumns)
+
 	if err := viper.ReadInConfig(); err != nil {
 		return fmt.Errorf("fatal error reading config file: %w", err)
 	}

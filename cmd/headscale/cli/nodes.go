@@ -12,6 +12,7 @@ import (
 	v1 "github.com/juanfont/headscale/gen/go/headscale/v1"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"google.golang.org/grpc/status"
 	"inet.af/netaddr"
 	"tailscale.com/types/key"
@@ -48,7 +49,7 @@ func init() {
 	listNodesCmd.Flags().StringP("namespace", "n", "", "Filter by namespace")
 	nodeCmd.AddCommand(listNodesCmd)
 
-	listNodesCmd.Flags().StringSliceP("columns", "", defaultColumns, "Customize layout by listing columns")
+	listNodesCmd.Flags().StringSliceP("columns", "", viper.GetStringSlice("cli.node.list.columns"), "Customize layout by listing columns")
 	nodeCmd.AddCommand(listNodesCmd)
 
 	registerNodeCmd.Flags().StringP("namespace", "n", "", "Namespace")
@@ -434,7 +435,7 @@ func nodesToPtables(
 			tableHeader = append(tableHeader, availableColumns[column])
 		}
 	} else {
-		for _, column := range defaultColumns {
+		for _, column := range viper.GetStringSlice("cli.node.list.columns") {
 			tableHeader = append(tableHeader, availableColumns[column])
 		}
 	}
@@ -530,7 +531,7 @@ func nodesToPtables(
 				nodeData = append(nodeData, defaultData[column])
 			}
 		} else {
-			for _, column := range defaultColumns {
+			for _, column := range viper.GetStringSlice("cli.node.list.columns") {
 				nodeData = append(nodeData, defaultData[column])
 			}
 		}
