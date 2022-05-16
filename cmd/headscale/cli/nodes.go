@@ -29,6 +29,9 @@ var availableColumns = map[string]string{
 	"online":       "Online",
 	"expired":      "Expired",
 	"tags":         "Tags",
+	"forced_tags":  "ForcedTags",
+	"invalid_tags": "InvalidTags",
+	"valid_tags":   "ValidTags",
 	"routes":       "Routes",
 }
 
@@ -47,6 +50,7 @@ var defaultColumns = []string{
 func init() {
 	rootCmd.AddCommand(nodeCmd)
 	listNodesCmd.Flags().StringP("namespace", "n", "", "Filter by namespace")
+	listNodesCmd.Flags().BoolP("tags", "t", false, "Show tags")
 	nodeCmd.AddCommand(listNodesCmd)
 
 	listNodesCmd.Flags().StringSliceP("columns", "", viper.GetStringSlice("cli.node.list.columns"), "Customize layout by listing columns")
@@ -92,6 +96,16 @@ func init() {
 		log.Fatalf(err.Error())
 	}
 	nodeCmd.AddCommand(moveNodeCmd)
+
+	tagCmd.Flags().Uint64P("identifier", "i", 0, "Node identifier (ID)")
+
+	err = tagCmd.MarkFlagRequired("identifier")
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+	tagCmd.Flags().
+		StringSliceP("tags", "t", []string{}, "List of tags to add to the node")
+	nodeCmd.AddCommand(tagCmd)
 }
 
 var nodeCmd = &cobra.Command{
@@ -162,6 +176,12 @@ var listNodesCmd = &cobra.Command{
 
 			return
 		}
+		showTags, err := cmd.Flags().GetBool("tags")
+		if err != nil {
+			ErrorOutput(err, fmt.Sprintf("Error getting tags flag: %s", err), output)
+
+			return
+		}
 
 		columns, err := cmd.Flags().GetStringSlice("columns")
 		if err != nil {
@@ -195,7 +215,7 @@ var listNodesCmd = &cobra.Command{
 			return
 		}
 
-		tableData, err := nodesToPtables(namespace, columns, response.Machines)
+		tableData, err := nodesToPtables(namespace, columns, showTags, response.Machines)
 		if err != nil {
 			ErrorOutput(err, fmt.Sprintf("Error converting to table: %s", err), output)
 
@@ -426,6 +446,7 @@ var moveNodeCmd = &cobra.Command{
 func nodesToPtables(
 	currentNamespace string,
 	withColumns []string,
+	showTags bool,
 	machines []*v1.Machine,
 ) (pterm.TableData, error) {
 	var tableHeader []string
@@ -436,6 +457,12 @@ func nodesToPtables(
 		}
 	} else {
 		for _, column := range viper.GetStringSlice("cli.node.list.columns") {
+			tableHeader = append(tableHeader, availableColumns[column])
+		}
+	}
+
+	if showTags {
+		for _, column := range []string{"forced_tags", "invalid_tags", "valid_tags"} {
 			tableHeader = append(tableHeader, availableColumns[column])
 		}
 	}
@@ -484,6 +511,26 @@ func nodesToPtables(
 			expired = pterm.LightRed("yes")
 		}
 
+		var forcedTags string
+		for _, tag := range machine.ForcedTags {
+			forcedTags += "," + tag
+		}
+		forcedTags = strings.TrimLeft(forcedTags, ",")
+		var invalidTags string
+		for _, tag := range machine.InvalidTags {
+			if !contains(machine.ForcedTags, tag) {
+				invalidTags += "," + pterm.LightRed(tag)
+			}
+		}
+		invalidTags = strings.TrimLeft(invalidTags, ",")
+		var validTags string
+		for _, tag := range machine.ValidTags {
+			if !contains(machine.ForcedTags, tag) {
+				validTags += "," + pterm.LightGreen(tag)
+			}
+		}
+		validTags = strings.TrimLeft(validTags, ",")
+
 		var namespace string
 		if currentNamespace == "" || (currentNamespace == machine.Namespace.Name) {
 			namespace = pterm.LightMagenta(machine.Namespace.Name)
@@ -492,13 +539,13 @@ func nodesToPtables(
 			namespace = pterm.LightYellow(machine.Namespace.Name)
 		}
 
-		var IpV4Address string
-		var IpV6Address string
+		var IPV4Address string
+		var IPV6Address string
 		for _, addr := range machine.IpAddresses {
 			if netaddr.MustParseIP(addr).Is4() {
-				IpV4Address = addr
+				IPV4Address = addr
 			} else {
-				IpV6Address = addr
+				IPV6Address = addr
 			}
 		}
 
@@ -516,12 +563,12 @@ func nodesToPtables(
 			"name":         machine.Name,
 			"nodekey":      nodeKey.ShortString(),
 			"namespace":    namespace,
-			"ip_addresses": strings.Join([]string{IpV4Address, IpV6Address}, ", "),
+			"ip_addresses": strings.Join([]string{IPV4Address, IPV6Address}, ", "),
 			"ephemeral":    strconv.FormatBool(ephemeral),
 			"last_seen":    lastSeenTime,
 			"online":       online,
 			"expired":      expired,
-			"tags":         strings.Join(machine.RequestTags, ", "),
+			"tags":         strings.Join([]string{forcedTags, invalidTags, validTags}, ", "),
 			"routes":       strings.Join(routes, ", "),
 		}
 
@@ -536,8 +583,70 @@ func nodesToPtables(
 			}
 		}
 
+		if showTags {
+			nodeData = append(nodeData, defaultData["tags"])
+		}
+
 		tableData = append(tableData, nodeData)
 	}
 
 	return tableData, nil
+}
+
+var tagCmd = &cobra.Command{
+	Use:     "tag",
+	Short:   "Manage the tags of a node",
+	Aliases: []string{"tags", "t"},
+	Run: func(cmd *cobra.Command, args []string) {
+		output, _ := cmd.Flags().GetString("output")
+		ctx, client, conn, cancel := getHeadscaleCLIClient()
+		defer cancel()
+		defer conn.Close()
+
+		// retrieve flags from CLI
+		identifier, err := cmd.Flags().GetUint64("identifier")
+		if err != nil {
+			ErrorOutput(
+				err,
+				fmt.Sprintf("Error converting ID to integer: %s", err),
+				output,
+			)
+
+			return
+		}
+		tagsToSet, err := cmd.Flags().GetStringSlice("tags")
+		if err != nil {
+			ErrorOutput(
+				err,
+				fmt.Sprintf("Error retrieving list of tags to add to machine, %v", err),
+				output,
+			)
+
+			return
+		}
+
+		// Sending tags to machine
+		request := &v1.SetTagsRequest{
+			MachineId: identifier,
+			Tags:      tagsToSet,
+		}
+		resp, err := client.SetTags(ctx, request)
+		if err != nil {
+			ErrorOutput(
+				err,
+				fmt.Sprintf("Error while sending tags to headscale: %s", err),
+				output,
+			)
+
+			return
+		}
+
+		if resp != nil {
+			SuccessOutput(
+				resp.GetMachine(),
+				"Machine updated",
+				output,
+			)
+		}
+	},
 }
